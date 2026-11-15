@@ -41,6 +41,15 @@ func TestParseProxyLine(t *testing.T) {
 		{name: "IPv6", in: "[::1]:8080", wantAddr: "[::1]:8080", wantScheme: "http"},
 		{name: "IPv6 带认证", in: "socks5://u:p@[::1]:1080",
 			wantAddr: "[::1]:1080", wantScheme: "socks5", wantUser: "u", wantPass: "p"},
+		{name: "商业代理 用户名带连字符", in: "customer-00879c:4bd22c03@proxy.ipipgo.com:31212",
+			wantAddr: "proxy.ipipgo.com:31212", wantScheme: "http",
+			wantUser: "customer-00879c", wantPass: "4bd22c03"},
+		{name: "商业代理 带协议和结尾斜杠", in: "http://customer-00879c:4bd22c03@proxy.ipipgo.com:31212/",
+			wantAddr: "proxy.ipipgo.com:31212", wantScheme: "http",
+			wantUser: "customer-00879c", wantPass: "4bd22c03"},
+		{name: "商业代理 SOCKS5 带认证", in: "socks5://customer-00879c:4bd22c03@proxy.ipipgo.com:31212",
+			wantAddr: "proxy.ipipgo.com:31212", wantScheme: "socks5",
+			wantUser: "customer-00879c", wantPass: "4bd22c03"},
 
 		{name: "缺端口", in: "1.2.3.4", wantErr: "缺少端口"},
 		{name: "缺主机", in: ":8080", wantErr: "缺少主机地址"},
@@ -177,6 +186,23 @@ func TestNormalizeErr(t *testing.T) {
 			name: "407 认证",
 			err:  errors.New("proxyconnect tcp: 407 Proxy Authentication Required"),
 			want: "代理认证失败",
+		},
+		{
+			// 实测 ipipgo 认证失败时返回的是自造状态码 443，而不是标准 407
+			name: "非标准状态码的认证失败",
+			err:  errors.New(`Get "https://x.com/a": 443 Proxy Authentication Failed`),
+			want: "代理认证失败",
+		},
+		{
+			// Windows 下对端提前关闭的原文
+			name: "对端中断",
+			err:  errors.New("read tcp 127.0.0.1:1->127.0.0.1:2: wsarecv: An established connection was aborted by the software in your host machine."),
+			want: "连接被重置",
+		},
+		{
+			name: "未知错误去掉 Get 前缀",
+			err:  errors.New(`Get "https://x.com/a": some weird upstream error`),
+			want: "some weird upstream error",
 		},
 		{
 			name: "SOCKS 握手失败",

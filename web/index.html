@@ -364,7 +364,7 @@ textarea.form-control{font-family:var(--mono);font-size:12.5px;line-height:1.75;
     </div>
     <div class="card-body">
       <textarea id="taProxies" class="form-control" rows="9" spellcheck="false"
-        placeholder="127.0.0.1:7890&#10;user:pass@10.0.0.2:3128&#10;10.0.0.3:8080:admin:123456&#10;socks5://127.0.0.1:1080"></textarea>
+        placeholder="127.0.0.1:7890&#10;user:pass@proxy.example.com:31212&#10;10.0.0.3:8080:admin:123456&#10;socks5://127.0.0.1:1080"></textarea>
 
       <div class="toolbar">
         <div class="field" style="flex:1 1 320px;min-width:220px">
@@ -1275,7 +1275,9 @@ textarea.form-control{font-family:var(--mono);font-size:12.5px;line-height:1.75;
     el.ta.value = [
       '# 一行一个，支持下面这几种写法：',
       '127.0.0.1:7890',
-      'user:pass@10.0.0.2:3128',
+      '# 带账号密码（商业代理常见，用户名带连字符也照常解析）：',
+      'user:pass@proxy.example.com:31212',
+      'customer-00879c:4bd22c03@proxy.example.com:31212',
       '10.0.0.3:8080:admin:123456',
       'socks5://127.0.0.1:1080',
       'socks5://user:pass@10.0.0.4:1080',

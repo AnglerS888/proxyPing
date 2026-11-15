@@ -431,8 +431,12 @@ func normalizeErr(err error, timeout time.Duration) string {
 		return "已取消"
 	case strings.Contains(low, "timeout"), strings.Contains(low, "timed out"):
 		return fmt.Sprintf("超时（>%dms）", timeout.Milliseconds())
-	case strings.Contains(low, "407"), strings.Contains(low, "proxy authentication required"):
-		return "代理认证失败（407）"
+	case strings.Contains(low, "407"), strings.Contains(low, "proxy authentication required"),
+		strings.Contains(low, "proxy authentication failed"):
+		// 有些商业代理（如 ipipgo）认证失败时返回的不是标准 407，
+		// 而是 `HTTP/1.1 443 Proxy Authentication Failed` 这种自造状态码，
+		// 两边都归到"认证失败"，否则界面上只会显示一坨原始错误
+		return "代理认证失败（账号或密码不对，也可能该账号限定了白名单 IP）"
 	case strings.Contains(low, "refused"), strings.Contains(low, "connectex"):
 		return "拒绝连接（端口没开）"
 	case strings.Contains(low, "socks"):
@@ -440,14 +444,24 @@ func normalizeErr(err error, timeout time.Duration) string {
 	case strings.Contains(low, "no such host"), strings.Contains(low, "server misbehaving"),
 		strings.Contains(low, "dns"):
 		return "域名解析失败"
-	case strings.Contains(low, "reset"), strings.Contains(low, "eof"), strings.Contains(low, "broken pipe"):
-		return "连接被重置"
+	// Windows 上对端提前断开常见的是 WSAECONNABORTED，
+	// 原文是 "wsarecv: An established connection was aborted by the software in your host machine"
+	case strings.Contains(low, "reset"), strings.Contains(low, "eof"),
+		strings.Contains(low, "broken pipe"), strings.Contains(low, "aborted"):
+		return "连接被重置（对端提前断开）"
 	case strings.Contains(low, "certificate"), strings.Contains(low, "x509"), strings.Contains(low, "tls"):
 		return "TLS 握手失败（证书/协议不兼容）"
 	case strings.Contains(low, "network is unreachable"), strings.Contains(low, "no route"):
 		return "网络不可达"
 	case strings.Contains(low, "proxyconnect"):
 		return "与代理握手失败"
+	}
+	// 兜底：Go 的错误统一是 `Get "https://…": 真正原因`，
+	// 表格里只需要后半句，前面那段 URL 会把说明列撑爆
+	if strings.HasPrefix(msg, `Get "`) {
+		if i := strings.Index(msg, `": `); i > 0 {
+			msg = msg[i+3:]
+		}
 	}
 	if len(msg) > 140 {
 		msg = msg[:140] + "…"
