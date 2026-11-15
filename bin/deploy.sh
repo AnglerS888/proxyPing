@@ -5,12 +5,14 @@
 # 流程：下载最新代码 → 构建镜像 → 替换容器 → 健康检查（失败自动回滚）
 #
 # 为什么用「代码归档包」而不是 git clone：
-#   部署机常常没装 git、也没有仓库凭据。Gitea 的 /archive/<分支>.tar.gz
+#   部署机常常没装 git、也没有仓库凭据。各家的 /archive/<分支>.tar.gz
 #   直接给一个压缩包，curl 就能拿，服务器上只要有 docker + curl + tar 即可。
+#   默认按 Gitee → GitHub → 自建 Gitea 的顺序试，哪个能下用哪个。
 #
 # 用法：
-#   bash bin/deploy.sh                    # 部署 main 分支
+#   bash bin/deploy.sh                    # 部署 main 分支（自动挑源）
 #   BRANCH=dev bash bin/deploy.sh         # 部署指定分支
+#   SOURCE=github bash bin/deploy.sh      # 只用某个源：gitee / github / gitea
 #   PORT=9099 bash bin/deploy.sh          # 换宿主机端口（容器内始终 8899）
 #   NO_CACHE=1 bash bin/deploy.sh         # 不用构建缓存（改过 Dockerfile 时用）
 #   HEALTH_TIMEOUT=40 bash bin/deploy.sh  # 机器很慢时放宽健康检查等待
@@ -23,8 +25,15 @@ IMAGE_NAME="${IMAGE_NAME:-proxyip}"
 CONTAINER_NAME="${CONTAINER_NAME:-proxyip}"
 PORT="${PORT:-8899}"
 BRANCH="${BRANCH:-main}"
-GIT_BASE="${GIT_BASE:-http://git.danran0.cc/danran/proxyIp}"
-CODE_URL="${GIT_BASE}/archive/${BRANCH}.tar.gz"
+
+# 代码来源，按顺序回退。国内机器基本都能拿到 Gitee，海外机器通常走 GitHub 更快，
+# 自建 Gitea 留作内网兜底（也是这个项目的原始仓库）
+GITEA_BASE="${GITEA_BASE:-http://git.danran0.cc/danran/proxyIp}"
+SOURCES=(
+    "gitee|https://gitee.com/anglers/proxyPing/repository/archive/${BRANCH}.tar.gz"
+    "github|https://github.com/AnglerS888/proxyPing/archive/refs/heads/${BRANCH}.tar.gz"
+    "gitea|${GITEA_BASE}/archive/${BRANCH}.tar.gz"
+)
 
 # 容器内固定监听 8899（镜像 EXPOSE 也是它）。
 # 只映射宿主机侧端口，避免 PORT 和 PROXYIP_PORT 两边不一致导致"容器在跑但访问不通"
@@ -87,17 +96,37 @@ check_env() {
 download_source() {
     TMP_DIR=$(mktemp -d)
     local pkg="$TMP_DIR/src.tar.gz"
+    local reached="" entry name url
 
-    # --retry：Gitea 偶尔 502；--max-time 兜住"卡住不动"的情况
-    if ! curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 180 \
-            "$CODE_URL" -o "$pkg"; then
-        err "下载失败: $CODE_URL"
-        warn "私有仓库需要凭据；分支名不对也会 404，可用 BRANCH=<分支> 重试"
+    for entry in "${SOURCES[@]}"; do
+        name="${entry%%|*}"
+        url="${entry#*|}"
+
+        # 指定了 SOURCE 就只试这一个源
+        if [ -n "${SOURCE:-}" ] && [ "$name" != "$SOURCE" ]; then
+            continue
+        fi
+
+        log "  尝试 $name: $url"
+        # --retry：源站偶尔 502；--max-time 兜住"卡住不动"的情况
+        if curl -fsSL --retry 2 --retry-delay 2 --connect-timeout 15 --max-time 180 \
+                "$url" -o "$pkg"; then
+            reached="$name"
+            break
+        fi
+        warn "  $name 拿不到，换下一个源"
+        rm -f "$pkg"
+    done
+
+    if [ -z "$reached" ]; then
+        err "下载失败：可选源都不可用"
+        warn "可用 SOURCE=gitee|github|gitea 指定单个源；分支名不对也会 404（当前 BRANCH=$BRANCH）"
         exit 1
     fi
+    log "  ✓ 已从 $reached 下载"
 
     if ! tar -xzf "$pkg" -C "$TMP_DIR"; then
-        err "解压失败，下载到的可能不是 tar.gz（检查 CODE_URL）"
+        err "解压失败，下载到的可能不是 tar.gz（源站返回了错误页？）"
         exit 1
     fi
 
@@ -208,7 +237,7 @@ main() {
     echo -e "${GREEN}============================================${NC}"
     echo -e "${GREEN}  代理 IP 测速台 - 自动部署${NC}"
     echo -e "${GREEN}============================================${NC}"
-    echo -e "  代码来源: ${YELLOW}${CODE_URL}${NC}"
+    echo -e "  代码分支: ${YELLOW}${BRANCH}${NC}（来源: ${SOURCE:-gitee → github → gitea 依次尝试}）"
     echo -e "  镜像/容器: ${YELLOW}${IMAGE_NAME} / ${CONTAINER_NAME}${NC}"
     echo -e "  访问端口: ${YELLOW}${PORT} -> ${CONTAINER_PORT}${NC}"
     echo ""

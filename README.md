@@ -7,10 +7,11 @@
 把一堆代理粘进来，量出每个的真实延迟，和本机直连摆在一起对比。
 单个二进制或一个容器跑在自己的机器上，不注册、不上传。
 
-[![Version](https://img.shields.io/badge/version-1.0.0-58a6ff)](http://git.danran0.cc/danran/proxyIp)
-[![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](http://git.danran0.cc/danran/proxyIp)
+[![Version](https://img.shields.io/badge/version-1.0.0-58a6ff)](https://github.com/AnglerS888/proxyPing)
+[![Gitee](https://img.shields.io/badge/Gitee-anglers%2FproxyPing-C71D23?logo=gitee&logoColor=white)](https://gitee.com/anglers/proxyPing)
+[![GitHub](https://img.shields.io/badge/GitHub-AnglerS888%2FproxyPing-181717?logo=github&logoColor=white)](https://github.com/AnglerS888/proxyPing)
+[![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](https://github.com/AnglerS888/proxyPing)
 [![Docker](https://img.shields.io/badge/Docker-%E6%94%AF%E6%8C%81-2496ED?logo=docker&logoColor=white)](#安装)
-[![Gitea](https://img.shields.io/badge/Gitea-danran%2FproxyIp-609926?logo=gitea&logoColor=white)](http://git.danran0.cc/danran/proxyIp)
 
 [功能](#功能) · [界面预览](#界面预览) · [安装](#安装) · [怎么用](#怎么用) · [代理格式](#支持的代理格式) · [结果怎么看](#结果怎么看) · [常见问题](#常见问题) · [接口](#接口)
 
@@ -59,31 +60,47 @@
 ## 安装
 
 装好后浏览器打开 `http://服务器IP:8899/`。
+源码同步在 [Gitee](https://gitee.com/anglers/proxyPing) 和 [GitHub](https://github.com/AnglerS888/proxyPing)，两边内容一样，挑下得动的用。
 
 ### 方式一：一键部署（Linux + Docker，推荐）
 
+按服务器所在网络选一条，脚本会自动下载源码、构建镜像、启动容器：
+
 ```bash
-git clone http://git.danran0.cc/danran/proxyIp
-cd proxyIp
+# 国内服务器（Gitee 源）
+curl -fsSL https://gitee.com/anglers/proxyPing/raw/main/bin/deploy.sh | bash
+
+# 国外 / 能直连 GitHub 的机器
+curl -fsSL https://raw.githubusercontent.com/AnglerS888/proxyPing/main/bin/deploy.sh | bash
+```
+
+**再执行一次就是升级**：脚本会重新拉源码、重建镜像、替换容器，新版本起不来会自动回滚到上一版。
+
+也可以先把仓库拉下来再跑：
+
+```bash
+git clone https://gitee.com/anglers/proxyPing.git   # 或 https://github.com/AnglerS888/proxyPing.git
+cd proxyPing
 bash bin/deploy.sh
 ```
 
-脚本会下载最新代码 → 构建镜像 → 替换容器 → 健康检查；**再执行一次就是升级**。
-新版本起不来会自动回滚到上一版。常用参数：
+常用参数：
 
 ```bash
-PORT=9099 bash bin/deploy.sh          # 换对外端口
+PORT=9099 bash bin/deploy.sh          # 换对外端口（容器内始终 8899）
 BRANCH=dev bash bin/deploy.sh         # 部署指定分支
+SOURCE=github bash bin/deploy.sh      # 只用某个源码源：gitee / github
 NO_CACHE=1 bash bin/deploy.sh         # 不用构建缓存
 ```
 
 服务器上只需要 `docker`、`curl`、`tar`；不需要装 git，也不需要仓库权限。
+脚本默认按 **Gitee → GitHub** 的顺序取源码，哪个能下用哪个。
 
 ### 方式二：Docker 手动跑
 
 ```bash
-git clone http://git.danran0.cc/danran/proxyIp
-cd proxyIp
+git clone https://gitee.com/anglers/proxyPing.git
+cd proxyPing
 docker build -t proxyip .
 docker run -d --name proxyip --restart unless-stopped -p 8899:8899 proxyip
 ```
@@ -208,6 +225,6 @@ curl -s http://localhost:8899/api/test \
 
 <div align="center">
 
-[Gitea](http://git.danran0.cc/danran/proxyIp)
+[Gitee](https://gitee.com/anglers/proxyPing) · [GitHub](https://github.com/AnglerS888/proxyPing)
 
 </div>
