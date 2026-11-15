@@ -13,13 +13,28 @@
 [![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](https://github.com/AnglerS888/proxyPing)
 [![Docker](https://img.shields.io/badge/Docker-%E6%94%AF%E6%8C%81-2496ED?logo=docker&logoColor=white)](#安装)
 
-[功能](#功能) · [界面预览](#界面预览) · [安装](#安装) · [怎么用](#怎么用) · [代理格式](#支持的代理格式) · [结果怎么看](#结果怎么看) · [常见问题](#常见问题) · [接口](#接口)
+[一键部署](#一键部署) · [功能](#功能) · [界面预览](#界面预览) · [安装](#安装) · [怎么用](#怎么用) · [代理格式](#支持的代理格式) · [结果怎么看](#结果怎么看) · [常见问题](#常见问题) · [接口](#接口)
 
 <img src="docs/screenshot-home.png" width="880" alt="代理测速台首页">
 
 <sub>粘贴代理 → 点「开始测速」→ 谁快谁慢一目了然，还带着「比本地直连慢多少」</sub>
 
 </div>
+
+## 一键部署
+
+服务器上装好 Docker，复制这一行就能用：
+
+```bash
+curl -fsSL http://git.danran0.cc/danran/proxyPing/raw/branch/main/bin/deploy.sh | bash -s deploy
+```
+
+脚本会自己下载源码 → 构建镜像 → 起容器 → 健康检查，装完打开 **`http://服务器IP:8899/`**。
+**再执行一次就是升级**，新版本起不来会自动回滚到上一版。
+
+<sub>访问不到这个仓库的机器，把地址换成 Gitee 或 GitHub 源即可，见 [安装](#安装) 一节。</sub>
+
+---
 
 ## 功能
 
@@ -64,19 +79,17 @@
 
 ### 方式一：一键部署（Linux + Docker，推荐）
 
-按服务器所在网络选一条，脚本会自动下载源码、构建镜像、启动容器：
+命令就是[页首](#一键部署)那条，默认从自建仓库拉代码。那台机器访问不到时换公共源：
 
 ```bash
-# 国内服务器（Gitee 源）
-curl -fsSL https://gitee.com/anglers/proxyPing/raw/main/bin/deploy.sh | bash
+# Gitee 源
+curl -fsSL https://gitee.com/anglers/proxyPing/raw/main/bin/deploy.sh | bash -s deploy
 
-# 国外 / 能直连 GitHub 的机器
-curl -fsSL https://raw.githubusercontent.com/AnglerS888/proxyPing/main/bin/deploy.sh | bash
+# GitHub 源
+curl -fsSL https://raw.githubusercontent.com/AnglerS888/proxyPing/main/bin/deploy.sh | bash -s deploy
 ```
 
-**再执行一次就是升级**：脚本会重新拉源码、重建镜像、替换容器，新版本起不来会自动回滚到上一版。
-
-也可以先把仓库拉下来再跑：
+想改脚本或者反复部署，克隆下来再跑更顺手：
 
 ```bash
 git clone https://gitee.com/anglers/proxyPing.git   # 或 https://github.com/AnglerS888/proxyPing.git
@@ -84,17 +97,32 @@ cd proxyPing
 bash bin/deploy.sh
 ```
 
-常用参数：
-
-```bash
-PORT=9099 bash bin/deploy.sh          # 换对外端口（容器内始终 8899）
-BRANCH=dev bash bin/deploy.sh         # 部署指定分支
-SOURCE=github bash bin/deploy.sh      # 只用某个源码源：gitee / github
-NO_CACHE=1 bash bin/deploy.sh         # 不用构建缓存
-```
-
 服务器上只需要 `docker`、`curl`、`tar`；不需要装 git，也不需要仓库权限。
 脚本默认按 **Gitee → GitHub** 的顺序取源码，哪个能下用哪个。
+
+常用参数：
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `PORT` | `8899` | 宿主机端口；容器内始终 8899 |
+| `BRANCH` | `main` | 部署哪个分支 |
+| `SOURCE` | 自动 | 只用某个源码源：`gitee` / `github` |
+| `NO_CACHE` | `0` | 设为 `1` 则 `docker build --no-cache` |
+| `HEALTH_TIMEOUT` | `20` | 健康检查最多等几秒，机器慢就调大 |
+
+```bash
+PORT=9099 bash bin/deploy.sh          # 换对外端口
+NO_CACHE=1 bash bin/deploy.sh         # 改过 Dockerfile 时用
+```
+
+装好之后还有几个子命令：
+
+```bash
+bash bin/deploy.sh logs      # 跟踪容器日志
+bash bin/deploy.sh status    # 容器状态 + 健康接口
+bash bin/deploy.sh restart   # 重启
+bash bin/deploy.sh stop      # 删掉容器（镜像保留）
+```
 
 ### 方式二：Docker 手动跑
 

@@ -10,7 +10,10 @@
 #   默认按 Gitee → GitHub → 自建 Gitea 的顺序试，哪个能下用哪个。
 #
 # 用法：
+#   curl -fsSL http://git.danran0.cc/danran/proxyPing/raw/branch/main/bin/deploy.sh | bash -s deploy
+#
 #   bash bin/deploy.sh                    # 部署 main 分支（自动挑源）
+#   bash bin/deploy.sh logs               # 跟踪日志（另有 restart / stop / status）
 #   BRANCH=dev bash bin/deploy.sh         # 部署指定分支
 #   SOURCE=github bash bin/deploy.sh      # 只用某个源：gitee / github / gitea
 #   PORT=9099 bash bin/deploy.sh          # 换宿主机端口（容器内始终 8899）
@@ -28,7 +31,7 @@ BRANCH="${BRANCH:-main}"
 
 # 代码来源，按顺序回退。国内机器基本都能拿到 Gitee，海外机器通常走 GitHub 更快，
 # 自建 Gitea 留作内网兜底（也是这个项目的原始仓库）
-GITEA_BASE="${GITEA_BASE:-http://git.danran0.cc/danran/proxyIp}"
+GITEA_BASE="${GITEA_BASE:-http://git.danran0.cc/danran/proxyPing}"
 SOURCES=(
     "gitee|https://gitee.com/anglers/proxyPing/repository/archive/${BRANCH}.tar.gz"
     "github|https://github.com/AnglerS888/proxyPing/archive/refs/heads/${BRANCH}.tar.gz"
@@ -58,8 +61,13 @@ err()  { echo -e "${RED}[ERROR]${NC} $(date '+%H:%M:%S')  $1"; }
 
 TMP_DIR=""
 cleanup() {
-    # 失败时也别把几十 MB 的源码包留在 /tmp 里
-    [ -n "$TMP_DIR" ] && rm -rf "$TMP_DIR"
+    # 失败时也别把几十 MB 的源码包留在 /tmp 里。
+    # 注意结尾的 return 0：trap 里最后一条命令失败会改写脚本退出码
+    # （没下载源码时 TMP_DIR 是空的，[ -n "" ] 返回 1，会让 help/status 也"失败"）
+    if [ -n "$TMP_DIR" ]; then
+        rm -rf "$TMP_DIR"
+    fi
+    return 0
 }
 trap cleanup EXIT
 
@@ -232,7 +240,7 @@ rollback() {
 }
 
 # ---------- 主流程 ----------
-main() {
+cmd_deploy() {
     echo ""
     echo -e "${GREEN}============================================${NC}"
     echo -e "${GREEN}  代理 IP 测速台 - 自动部署${NC}"
@@ -272,4 +280,90 @@ main() {
     echo -e "${GREEN}============================================${NC}"
 }
 
-main "$@"
+# ============================================================
+# 子命令
+#
+# `curl ... | bash -s deploy` 会把 deploy 当成 $1 传进来，
+# 所以这里必须认这个参数；不传等同于 deploy。
+# ============================================================
+
+usage() {
+    cat <<'EOT'
+用法: deploy.sh [命令]
+
+  deploy    下载最新代码 → 构建镜像 → 替换容器 → 健康检查（默认）
+  restart   重启容器
+  stop      停止并删除容器（镜像保留）
+  status    查看容器状态与健康接口
+  logs      跟踪容器日志（Ctrl+C 退出）
+  help      显示这段帮助
+
+环境变量: PORT BRANCH SOURCE NO_CACHE HEALTH_TIMEOUT IMAGE_NAME CONTAINER_NAME
+EOT
+}
+
+# require_container 除 deploy 外的命令都要先确认容器存在
+require_container() {
+    if ! docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$CONTAINER_NAME"; then
+        err "容器 $CONTAINER_NAME 不存在，先执行一次 deploy"
+        return 1
+    fi
+}
+
+cmd_restart() {
+    check_env
+    require_container || exit 1
+    log "重启 $CONTAINER_NAME ..."
+    docker restart "$CONTAINER_NAME" >/dev/null
+    if health_check; then
+        log "✓ 已重启，服务正常"
+    else
+        err "重启后健康检查没通过，最近日志："
+        docker logs --tail 30 "$CONTAINER_NAME" 2>&1 || true
+        exit 1
+    fi
+}
+
+cmd_stop() {
+    check_env
+    if require_container; then
+        # rm -f 一步到位；镜像留着，下次 deploy 还能用
+        docker rm -f "$CONTAINER_NAME" >/dev/null
+        log "✓ 已删除容器 $CONTAINER_NAME（镜像 ${LATEST_TAG} 保留）"
+    else
+        warn "已经没在跑了"
+    fi
+}
+
+cmd_status() {
+    check_env
+    require_container || exit 1
+    docker ps -a --filter "name=^${CONTAINER_NAME}$" \
+        --format '  状态: {{.Status}}
+  镜像: {{.Image}}
+  端口: {{.Ports}}'
+    printf '  接口: '
+    curl -s --noproxy '*' --max-time 3 "http://127.0.0.1:${PORT}/version" || echo "（访问不通）"
+    echo
+}
+
+cmd_logs() {
+    check_env
+    require_container || exit 1
+    docker logs -f --tail 200 "$CONTAINER_NAME"
+}
+
+# ---------- 入口 ----------
+case "${1:-deploy}" in
+    deploy | update) cmd_deploy ;;
+    restart)         cmd_restart ;;
+    stop)            cmd_stop ;;
+    status)          cmd_status ;;
+    logs)            cmd_logs ;;
+    help | -h | --help) usage ;;
+    *)
+        err "未知命令: $1"
+        usage
+        exit 1
+        ;;
+esac
