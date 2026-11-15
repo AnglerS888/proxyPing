@@ -116,8 +116,10 @@ download_source() {
         fi
 
         log "  尝试 $name: $url"
-        # --retry：源站偶尔 502；--max-time 兜住"卡住不动"的情况
-        if curl -fsSL --retry 2 --retry-delay 2 --connect-timeout 15 --max-time 180 \
+        # --retry：源站偶尔 502；--max-time 兜住"卡住不动"的情况。
+        # 这两个值不能给太长：源不可达时要尽快失败，才能轮到下一个源
+        # （1.3MB 的包正常几秒就下完，60s 已经非常宽松了）
+        if curl -fsSL --retry 2 --retry-delay 2 --connect-timeout 8 --max-time 60 \
                 "$url" -o "$pkg"; then
             reached="$name"
             break
