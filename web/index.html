@@ -326,6 +326,9 @@ textarea.form-control{font-family:var(--mono);font-size:12.5px;line-height:1.75;
      本地延迟在下面的概览卡里照样能看到 */
   #pillLocal{display:none}
   .pill{font-size:11px;padding:3px 8px}
+  /* 工具栏换行后主按钮会孤零零挂在最后一行，让它独占一行并占满宽度 */
+  .toolbar .spacer{display:none}
+  .toolbar #btnStart{flex:1 1 100%}
 }
 </style>
 </head>

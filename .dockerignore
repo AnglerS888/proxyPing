@@ -16,9 +16,10 @@ proxyip
 # 部署脚本（在宿主机执行，不进镜像）
 bin/
 
-# 文档（运行镜像用不到）
+# 文档与截图（运行镜像用不到）
 README.md
 *.md
+docs/
 
 # 本地 Agent 工作记录
 .workbuddy/
