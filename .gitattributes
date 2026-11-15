@@ -1,0 +1,11 @@
+# 统一按 LF 落库：Windows 的 core.autocrlf 会把工作区转成 CRLF，
+# 而 Dockerfile / 脚本带 CRLF 进 Linux 容器会出现各种奇怪的执行问题
+* text=auto eol=lf
+
+# 二进制不做换行转换，否则文件会被改坏
+*.exe binary
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff binary
+*.woff2 binary

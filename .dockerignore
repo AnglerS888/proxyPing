@@ -1,0 +1,21 @@
+# 本地产物（镜像里由 builder 重新编译）
+proxyIp.exe
+proxyIp
+proxyip
+*.exe
+*.test
+*.out
+
+# Git 与 IDE
+.git/
+.gitignore
+.idea/
+.vscode/
+
+# 文档（运行镜像用不到）
+README.md
+*.md
+
+# 本地 Agent 工作记录
+.workbuddy/
+.workbuddy-ai/

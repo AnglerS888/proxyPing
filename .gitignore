@@ -1,0 +1,28 @@
+# 编译产物
+proxyIp.exe
+proxyIp
+proxyip
+*.exe
+*.test
+*.out
+
+# Go workspace / 依赖
+vendor/
+go.work
+go.work.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 本地 Agent 工作记录（个人笔记，不进仓库）
+.workbuddy/
+.workbuddy-ai/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

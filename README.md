@@ -1,0 +1,218 @@
+# 代理 IP 测速台 · ProxyPing
+
+批量测代理的延迟，并且**始终拿本地直连作为参照物**。
+
+粘贴一堆代理进来，服务端用每条代理去请求同一个目标接口，拆出「建连 / TLS / 首字节 / 总耗时」，
+同时给出本机直连的基线。这样不但知道某个代理"通不通、多快"，还知道它相对你自己的网络到底慢了多少。
+
+默认测速目标：
+
+```
+https://pay-api.ds.163.com/api/god-income/info?game_code=
+```
+
+页面里可以随时改成别的 URL —— 本质上它是个"挑代理"的小工具，目标换了照样用。
+
+---
+
+## 特性
+
+- **一行一个**粘贴代理，兼容代理池导出的各种写法，自动去重、自动跳过注释和空行
+- **流式出结果**：每测完一条立刻上屏，500 条代理也不会对着白屏干等
+- **本地基线对比**：首屏自动测一次本机直连，表格里每条代理都带「相对本地 ±xx ms」
+- **延迟拆分**：建连 / TLS 握手 / TTFB / 总耗时，抖动在哪一环一眼能看出来
+- **可用性判定宽松**：只要拿回 HTTP 响应就算"通"，403/410 单独标出来（说明链路通了、只是被风控挡了）
+- 可调并发、超时、每 IP 轮次；支持中途停止；结果可导出 CSV
+- 深浅两套主题，窄屏自适应；Bootstrap 与页面全部 `go:embed` 进二进制，**部署只用一个 exe**
+- 零第三方依赖，只用标准库
+
+---
+
+## 快速开始
+
+```bash
+# 直接跑（默认监听 :8899）
+go run .
+
+# 或者编译成单文件
+go build -o proxyIp .
+./proxyIp
+```
+
+打开 <http://localhost:8899/>。
+
+```bash
+# 换端口
+PROXYIP_PORT=9000 ./proxyIp
+
+# 打版本号（页面右上角角标 + /version 接口）
+go build -ldflags "-X main.Version=1.2.0" -o proxyIp .
+```
+
+### 页面怎么用
+
+1. 把代理粘进大文本框（一行一个）
+2. 按需调「并发 / 超时 / 每 IP 轮次」，目标 URL 一般不用动
+3. 点「开始测速」，或按 `Ctrl+Enter`
+4. 表格实时长出结果，可切换「按延迟 / 按输入顺序 / 按状态码」排序
+5. 想留档就点「导出 CSV」
+
+---
+
+## 支持的代理写法
+
+| 输入 | 解析结果 |
+| --- | --- |
+| `1.2.3.4:8080` | `http://1.2.3.4:8080` |
+| `1.2.3.4:8080:user:pass` | 带认证的 http 代理（代理池导出常见格式） |
+| `user:pass@1.2.3.4:8080` | 带认证的 http 代理 |
+| `http://user:pass@1.2.3.4:8080` | 带认证的 http 代理 |
+| `https://1.2.3.4:8443` | HTTPS 代理 |
+| `socks5://1.2.3.4:1080` | SOCKS5（`socks5h://` 表示由代理端解析域名） |
+| `[::1]:8080` | IPv6 |
+
+- 以 `#` 或 `//` 开头的行会被当成注释忽略
+- 尾部路径、查询串会被丢掉：`http://1.2.3.4:8080/path?x=1` → `1.2.3.4:8080`
+- 规范化后重复的条目会被静默去掉（同一个代理测两遍既浪费配额又让排名失真）
+- 解析失败不会中断整批，会在「原始输出」里逐行提示「第 N 行跳过：原因」
+
+---
+
+## 指标说明
+
+| 指标 | 含义 |
+| --- | --- |
+| **连接** | 到代理服务器的 TCP 建连耗时 |
+| **TLS** | 与目标站完成 TLS 握手耗时（HTTP 目标为 0） |
+| **TTFB** | 从发起请求到收到第一个响应字节，包含上面两段 |
+| **平均延迟** | 成功轮次的请求总耗时均值，**排名按它算** |
+| **最小延迟** | 最快那一轮的总耗时 |
+| **相对本地** | 该代理平均延迟 − 本地直连平均延迟；负数表示比直连还快（本地出口被限速时很常见） |
+
+延迟分档着色：绿（≤250ms）/ 蓝（≤500ms）/ 橙（≤900ms）/ 红（>900ms 或不通）。
+
+---
+
+## HTTP API
+
+### `POST /api/test` — 批量测速（流式）
+
+请求：
+
+```json
+{
+  "proxies": "1.2.3.4:8080\nuser:pass@5.6.7.8:3128",
+  "target": "https://pay-api.ds.163.com/api/god-income/info?game_code=",
+  "timeoutMs": 8000,
+  "rounds": 1,
+  "concurrency": 8
+}
+```
+
+响应 `Content-Type: application/x-ndjson`，**一行一个事件**，边测边下发：
+
+```jsonc
+// 1) 开跑前先给总量和解析失败的行
+{"type":"meta","target":"...","total":2,"duplicated":0,"invalid":[{"line":3,"raw":"abc","error":"缺少端口（形如 1.2.3.4:8080）"}]}
+
+// 2) 本地直连基线（总在代理结果之前）
+{"type":"local","local":{"ok":true,"status":200,"avgMs":183.2,"minMs":176.4,"ttfbMs":176.4,"connMs":35.1,"tlsMs":79.2,"kind":"json","bytes":52,"snippet":"{\"code\":410,...}"}}
+
+// 3) 每测完一条推一条
+{"type":"result","done":1,"total":2,"result":{"line":1,"addr":"1.2.3.4:8080","scheme":"http","auth":false,"ok":true,"status":200,"avgMs":342.1,"minMs":338.0,"connMs":1.2,"tlsMs":84.4,"ttfbMs":330.5,"kind":"json","bytes":52,"rounds":1,"okRounds":1}}
+
+// 4) 收尾统计
+{"type":"done","done":2,"total":2,"summary":{"total":2,"ok":1,"fail":1,"elapsedMs":6120,"fastest":"1.2.3.4:8080","fastestMs":342.1,"stopped":false}}
+```
+
+客户端点「停止」时连接断开，服务端感知到 `r.Context()` 取消会立刻停手，
+最后一条 `done` 里 `stopped: true`。
+
+### `GET /api/local` — 只测本地基线
+
+`?rounds=1&timeoutMs=8000&target=<url>`，返回 `{"code":0,"local":{...}}`，结构与上面 `local` 事件一致。页面加载时会自动调一次。
+
+### `GET /version`
+
+```json
+{"code":0,"version":"1.0.0","target":"https://pay-api.ds.163.com/api/god-income/info?game_code="}
+```
+
+---
+
+## 项目结构
+
+```
+.
+├── main.go          入口、路由、启动横幅
+├── web.go           页面托管（go:embed）+ favicon + 本地 Bootstrap
+├── handler.go       HTTP 处理器：流式测速、本地基线、writeJSON、日志
+├── proxy.go         测速内核：输入解析、单次测量、并发调度、错误归一化
+├── proxy_test.go    解析 / 错误归类 / 参数夹紧的单元测试（不联网）
+├── web/
+│   ├── index.html          单文件页面（内联 CSS/JS，深浅主题）
+│   └── bootstrap.min.css   Bootstrap 4.6.2，本地托管
+├── Dockerfile
+└── go.mod
+```
+
+页面用 `go:embed` 打进二进制：部署时不用带 `web/` 目录，也不会出现"忘了拷样式表"。
+`web/` 必须留在包目录内 —— `go:embed` 不允许用 `..` 往上越级。
+
+---
+
+## 几个刻意的取舍
+
+**为什么是流式 NDJSON，而不是一次性返回数组？**
+500 条代理、8 秒超时，最坏要跑几分钟。憋一个完整 JSON 的话页面全程空白，用户只能猜是不是卡死了。
+现在测完一条推一行，表格是实时长出来的。
+
+**为什么每一轮都新建 `Transport` 并 `DisableKeepAlives`？**
+复用连接会省掉 TCP/TLS 握手，第二轮起测出来的延迟会低得离谱。用户真正关心的是"冷启动一次要多久"。
+
+**为什么本地基线必须显式 `Proxy: nil`？**
+不少机器上配了 `HTTP_PROXY` 环境变量。如果让 Transport 自己读环境，所谓"直连基线"会悄悄走代理，
+整张对比表就失去意义了。
+
+**为什么 `httptrace` 的耗时用纳秒换算？**
+`Microseconds()` 会截断成整数微秒，本机回环建连常常不到 1µs，于是表格里出现"连接 0.00ms"这种像 bug 的数。
+
+**为什么错误归一化要先认 `refused` 再认 `proxyconnect`？**
+Windows 上"代理端口没开"的原文是 `proxyconnect tcp: ... connectex: ... actively refused it.`，
+既没有 `connection refused` 又带着 `proxyconnect`，顺序一反就会把所有这类失败误标成"407 认证失败"。
+
+---
+
+## 限制
+
+| 项 | 上限 | 说明 |
+| --- | --- | --- |
+| 单次代理条数 | 500 | 防止粘 10 万行打爆机器和目标站 |
+| 请求体 | 4 MB | 超出直接拒绝，不静默截断 |
+| 并发 | 64 | 且不会超过待测条目数 |
+| 超时 | 1 ~ 30 秒 | 非法值回落到 8 秒 |
+| 每 IP 轮次 | 5 | 轮次越多越准，也越慢 |
+| 单响应读取 | 512 KB | 只测连通性，不下载整页 |
+
+本工具只做「连通性和延迟」测速，不保证代理的匿名性、稳定性或合规性 —— 请只测你有权使用的代理。
+
+---
+
+## Docker
+
+```bash
+docker build -t proxyping .
+docker run -d --name proxyping -p 8899:8899 -e TZ=Asia/Shanghai proxyping
+```
+
+镜像里显式装了 `ca-certificates`：精简镜像默认没有根证书，缺了会让所有 HTTPS 目标报 TLS 错误。
+
+---
+
+## 测试
+
+```bash
+go test ./...        # 解析、错误归类、参数夹紧，全部离线可跑
+gofmt -l .           # 应无输出
+go vet ./...
+```
