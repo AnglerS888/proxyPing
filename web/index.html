@@ -103,6 +103,8 @@ textarea.form-control{font-family:var(--mono);font-size:12.5px;line-height:1.75;
 }
 .field{display:flex;align-items:center;gap:7px}
 .field>label{margin:0;font-size:11.5px;color:var(--muted);white-space:nowrap}
+/* 必填标记：目标 URL 没有默认值，不填就没法测 */
+.req{color:var(--orange);font-size:12px;line-height:1;margin-left:1px}
 
 /* ---- 按钮 ---- */
 .btn{
@@ -363,8 +365,9 @@ textarea.form-control{font-family:var(--mono);font-size:12.5px;line-height:1.75;
 
       <div class="toolbar">
         <div class="field" style="flex:1 1 320px;min-width:220px">
-          <label for="inpTarget">目标</label>
-          <input id="inpTarget" class="form-control" style="font-family:var(--mono);font-size:11.5px" value="{{TARGET}}">
+          <label for="inpTarget">目标<span class="req" title="必填">*</span></label>
+          <input id="inpTarget" class="form-control" style="font-family:var(--mono);font-size:11.5px"
+                 placeholder="必填，例如 https://example.com/api/ping" spellcheck="false" autocomplete="off">
         </div>
         <div class="field">
           <label for="selConc">并发</label>
@@ -411,7 +414,7 @@ textarea.form-control{font-family:var(--mono);font-size:12.5px;line-height:1.75;
             <button class="mini-btn" id="btnLocal" title="重新测一次本地基线">重测</button>
           </div>
           <div class="stat-value" id="statLocal">—</div>
-          <div class="stat-sub" id="statLocalSub">尚未测量</div>
+          <div class="stat-sub" id="statLocalSub">填写目标后自动测基线</div>
         </div>
         <div class="stat">
           <div class="stat-label">最快代理</div>
@@ -540,6 +543,11 @@ textarea.form-control{font-family:var(--mono);font-size:12.5px;line-height:1.75;
     running: false,
     ctrl: null,
     local: null,
+    // localTarget 记录这份基线是针对哪个目标测的：
+    // 用户改了目标后，旧基线就不能再拿来对比了，得提示重测
+    localTarget: '',
+    // runTarget 本轮实际使用的目标（服务端规范化后的）
+    runTarget: '',
     results: [],
     total: 0,
     done: 0,
@@ -580,6 +588,13 @@ textarea.form-control{font-family:var(--mono);font-size:12.5px;line-height:1.75;
   function msUnit(ms) {
     if (ms === null || ms === undefined || !isFinite(ms)) return '—';
     return fmtMs(ms) + (ms < 1000 ? ' ms' : '');
+  }
+  // 目标地址的规范化口径要跟服务端保持一致（没写协议就补 https://），
+  // 否则"是否换了目标"的判断会因为少了协议头而误报
+  function normTargetInput(v) {
+    v = (v || '').trim();
+    if (!v) return '';
+    return v.indexOf('://') < 0 ? 'https://' + v : v;
   }
   function median(arr) {
     if (!arr.length) return null;
@@ -860,9 +875,13 @@ textarea.form-control{font-family:var(--mono);font-size:12.5px;line-height:1.75;
     // 本地基线
     if (state.local) {
       var L = state.local;
+      // 目标被改过之后，这份基线就对不上了，必须提示重测，
+      // 否则"相对本地"那一列会拿旧目标的数字去比新目标的结果
+      var stale = state.localTarget && normTargetInput(el.target.value) !== state.localTarget;
       if (L.ok) {
         setStat(el.statLocal, L.avgMs);
-        el.statLocalSub.textContent = '最小 ' + msUnit(L.minMs) + ' · TTFB ' + msUnit(L.ttfbMs);
+        el.statLocalSub.textContent = '最小 ' + msUnit(L.minMs) + ' · TTFB ' + msUnit(L.ttfbMs) +
+          (stale ? ' · 目标已变，请重测' : '');
         el.pillLocal.className = 'pill on';
         el.pillLocalText.textContent = '本地基线 ' + msUnit(L.avgMs);
       } else {
@@ -934,6 +953,7 @@ textarea.form-control{font-family:var(--mono);font-size:12.5px;line-height:1.75;
       case 'meta':
         state.total = ev.total || 0;
         state.done = 0;
+        state.runTarget = ev.target || '';
         logLine('目标 ' + ev.target, 'dim');
         logLine('准备测速 ' + ev.total + ' 条代理' + (ev.duplicated ? '（忽略重复 ' + ev.duplicated + ' 条）' : ''), 'info');
         if (ev.truncated) logLine('超过单次上限，只测前 ' + ev.total + ' 条', 'warn');
@@ -946,6 +966,8 @@ textarea.form-control{font-family:var(--mono);font-size:12.5px;line-height:1.75;
 
       case 'local':
         state.local = ev.local;
+        // 基线跟着本轮目标走：先记下来，用户改目标后就能提示"已过期"
+        state.localTarget = state.runTarget || normTargetInput(el.target.value);
         var L = ev.local;
         if (L.ok) {
           logLine('本地直连基线：平均 ' + fmtMs(L.avgMs) + ' ms（最小 ' + fmtMs(L.minMs) +
@@ -1043,6 +1065,13 @@ textarea.form-control{font-family:var(--mono);font-size:12.5px;line-height:1.75;
       el.ta.focus();
       return;
     }
+    // 目标没有默认值，必须由用户填；没填就别开跑，否则服务端也会直接拒绝
+    if (!el.target.value.trim()) {
+      toast('请先填写测速目标 URL');
+      el.target.focus();
+      return;
+    }
+    saveOpts();
 
     reset();
     setRunning(true);
@@ -1125,15 +1154,24 @@ textarea.form-control{font-family:var(--mono);font-size:12.5px;line-height:1.75;
 
   async function pingLocal(silent) {
     if (state.running) return;
+    var target = el.target.value.trim();
+    if (!target) {
+      if (!silent) {
+        toast('请先填写测速目标 URL');
+        el.target.focus();
+      }
+      return;
+    }
     if (!silent) setPill('测本地…', 'busy');
     try {
       var q = '?rounds=' + encodeURIComponent(el.rounds.value) +
         '&timeoutMs=' + encodeURIComponent(el.timeout.value) +
-        '&target=' + encodeURIComponent(el.target.value.trim());
+        '&target=' + encodeURIComponent(target);
       var resp = await fetch('/api/local' + q);
       var data = await resp.json();
       if (data.code !== 0) throw new Error(data.msg || '测速失败');
       state.local = data.local;
+      state.localTarget = normTargetInput(target);
       var L = data.local;
       if (L.ok) {
         logLine('本地直连基线：平均 ' + fmtMs(L.avgMs) + ' ms（TTFB ' + fmtMs(L.ttfbMs) + ' ms）状态 ' + L.status, 'local');
@@ -1249,24 +1287,32 @@ textarea.form-control{font-family:var(--mono);font-size:12.5px;line-height:1.75;
   el.exportBtn.addEventListener('click', exportCSV);
   el.sort.addEventListener('change', function () { markDirty(); });
 
-  // 参数记住，省得每次刷新都要重选（代理列表含账号密码，不存本地）
+  // 参数记住，省得每次刷新都要重选。
+  // 目标 URL 也记（不是敏感信息，而且通常是个很长的地址）；
+  // 代理列表里可能带账号密码，一律不落本地存储。
   try {
     var saved = JSON.parse(localStorage.getItem('pp-opts') || '{}');
     if (saved.conc) el.conc.value = saved.conc;
     if (saved.timeout) el.timeout.value = saved.timeout;
     if (saved.rounds) el.rounds.value = saved.rounds;
+    if (saved.target) el.target.value = saved.target;
   } catch (e) { /* 忽略 */ }
 
   function saveOpts() {
     try {
       localStorage.setItem('pp-opts', JSON.stringify({
-        conc: el.conc.value, timeout: el.timeout.value, rounds: el.rounds.value
+        conc: el.conc.value, timeout: el.timeout.value, rounds: el.rounds.value,
+        target: el.target.value.trim()
       }));
     } catch (e) { /* 忽略 */ }
   }
   el.conc.addEventListener('change', saveOpts);
   el.timeout.addEventListener('change', saveOpts);
   el.rounds.addEventListener('change', saveOpts);
+  el.target.addEventListener('change', function () {
+    saveOpts();
+    renderStats(); // 目标是本地基线的前提，改了要立刻反映"目标已变"
+  });
 
   // ============================================================
   // 初始化
@@ -1276,9 +1322,12 @@ textarea.form-control{font-family:var(--mono);font-size:12.5px;line-height:1.75;
   countLines();
   renderStats();
   updateProgress();
-  logLine('就绪。粘贴代理后点「开始测速」，或按 Ctrl+Enter 直接开跑', 'dim');
-  // 打开页面顺手量一次本地基线：有了参照物，代理成绩才有意义
-  pingLocal(true);
+  logLine('就绪。填好「目标 URL」并粘贴代理列表后点「开始测速」，或按 Ctrl+Enter', 'dim');
+  // 打开页面顺手量一次本地基线：有了参照物，代理成绩才有意义。
+  // 目标没填（或没记住过）就先不测——没有目标，基线本身没有意义
+  if (el.target.value.trim()) {
+    pingLocal(true);
+  }
 })();
 </script>
 </body>

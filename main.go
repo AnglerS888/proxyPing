@@ -46,7 +46,7 @@ func main() {
 	fmt.Println("  GET  /api/local - 本地网络延迟基线")
 	fmt.Println("  GET  /version   - 查看版本号")
 	fmt.Println("----------------------------------------")
-	fmt.Println("  测速目标: " + defaultTargetURL)
+	fmt.Println("  测速目标: 页面里填（必填，不设默认值）")
 	fmt.Println("  监听端口: " + port + "   控制台: http://localhost:" + port + "/")
 	fmt.Println("========================================")
 
@@ -61,6 +61,5 @@ func handleVersion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{
 		"code":    0,
 		"version": Version,
-		"target":  defaultTargetURL,
 	})
 }

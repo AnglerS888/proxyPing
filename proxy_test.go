@@ -239,7 +239,49 @@ func TestDetectKind(t *testing.T) {
 	}
 }
 
+// 目标 URL 是必填项，没有内置默认值
+func TestNormalizeTarget(t *testing.T) {
+	cases := []struct {
+		name    string
+		in      string
+		want    string
+		wantErr string
+	}{
+		{name: "完整地址原样保留", in: "https://a.example/api/x?y=1", want: "https://a.example/api/x?y=1"},
+		{name: "去掉首尾空白", in: "  https://a.example/x  ", want: "https://a.example/x"},
+		{name: "缺协议自动补 https", in: "a.example/api", want: "https://a.example/api"},
+		{name: "http 也允许", in: "http://a.example:8080/ping", want: "http://a.example:8080/ping"},
+		{name: "空串报错", in: "", wantErr: "请先填写"},
+		{name: "纯空白报错", in: "   \n ", wantErr: "请先填写"},
+		{name: "不是地址", in: "http://", wantErr: "不是合法地址"},
+		{name: "协议不支持", in: "ftp://a.example/x", wantErr: "只支持 http/https"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := normalizeTarget(c.in)
+			if c.wantErr != "" {
+				if err == nil {
+					t.Fatalf("%q 应该报错，却通过并返回 %q", c.in, got)
+				}
+				if !strings.Contains(err.Error(), c.wantErr) {
+					t.Fatalf("错误信息不含 %q，实际: %v", c.wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("%q 不该报错: %v", c.in, err)
+			}
+			if got != c.want {
+				t.Errorf("normalizeTarget = %q, 期望 %q", got, c.want)
+			}
+		})
+	}
+}
+
 func TestNormalizeOptions(t *testing.T) {
+	const target = "https://a.example/x"
+
 	cases := []struct {
 		name                            string
 		target                          string
@@ -247,37 +289,57 @@ func TestNormalizeOptions(t *testing.T) {
 		wantTarget                      string
 		wantTimeout                     time.Duration
 		wantRounds, wantConc            int
+		wantErr                         bool
 	}{
 		{
-			name:   "全部非法则回落默认",
+			name:   "目标是必填",
 			target: "  ", timeoutMs: 0, rounds: 0, concv: 0, total: 100,
-			wantTarget: defaultTargetURL, wantTimeout: 8 * time.Second, wantRounds: 1, wantConc: 8,
+			wantErr: true,
+		},
+		{
+			name:   "其余非法值回落默认",
+			target: target, timeoutMs: 0, rounds: 0, concv: 0, total: 100,
+			wantTarget: target, wantTimeout: 8 * time.Second, wantRounds: 1, wantConc: 8,
 		},
 		{
 			name:   "合法值原样保留",
-			target: "https://a.example/x", timeoutMs: 5000, rounds: 3, concv: 16, total: 100,
-			wantTarget: "https://a.example/x", wantTimeout: 5 * time.Second, wantRounds: 3, wantConc: 16,
+			target: target, timeoutMs: 5000, rounds: 3, concv: 16, total: 100,
+			wantTarget: target, wantTimeout: 5 * time.Second, wantRounds: 3, wantConc: 16,
+		},
+		{
+			name:   "缺协议时补 https",
+			target: "a.example", timeoutMs: 8000, rounds: 1, concv: 4, total: 10,
+			wantTarget: "https://a.example", wantTimeout: 8 * time.Second, wantRounds: 1, wantConc: 4,
 		},
 		{
 			name:   "上限夹紧",
-			target: defaultTargetURL, timeoutMs: 999999, rounds: 9, concv: 999, total: 100,
-			wantTarget: defaultTargetURL, wantTimeout: 8 * time.Second, wantRounds: 5, wantConc: 64,
+			target: target, timeoutMs: 999999, rounds: 9, concv: 999, total: 100,
+			wantTarget: target, wantTimeout: 8 * time.Second, wantRounds: 5, wantConc: 64,
 		},
 		{
 			name:   "并发不超过待测条目数",
-			target: defaultTargetURL, timeoutMs: 8000, rounds: 1, concv: 32, total: 3,
-			wantTarget: defaultTargetURL, wantTimeout: 8 * time.Second, wantRounds: 1, wantConc: 3,
+			target: target, timeoutMs: 8000, rounds: 1, concv: 32, total: 3,
+			wantTarget: target, wantTimeout: 8 * time.Second, wantRounds: 1, wantConc: 3,
 		},
 		{
 			name:   "超时下限夹紧",
-			target: defaultTargetURL, timeoutMs: 10, rounds: 1, concv: 4, total: 10,
-			wantTarget: defaultTargetURL, wantTimeout: 8 * time.Second, wantRounds: 1, wantConc: 4,
+			target: target, timeoutMs: 10, rounds: 1, concv: 4, total: 10,
+			wantTarget: target, wantTimeout: 8 * time.Second, wantRounds: 1, wantConc: 4,
 		},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := normalizeOptions(c.target, c.timeoutMs, c.rounds, c.concv, c.total)
+			got, err := normalizeOptions(c.target, c.timeoutMs, c.rounds, c.concv, c.total)
+			if c.wantErr {
+				if err == nil {
+					t.Fatal("应该返回错误，却通过了")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("不该报错: %v", err)
+			}
 			if got.Target != c.wantTarget {
 				t.Errorf("Target = %q, 期望 %q", got.Target, c.wantTarget)
 			}

@@ -80,7 +80,13 @@ func handleSpeedTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	opt := normalizeOptions(req.Target, req.TimeoutMs, req.Rounds, req.Concurrency, len(entries))
+	opt, err := normalizeOptions(req.Target, req.TimeoutMs, req.Rounds, req.Concurrency, len(entries))
+	if err != nil {
+		// 目标没填/不合法属于"参数没准备好"，直接回普通 JSON 错误，
+		// 不要开流式响应——前端看到 content-type 不是 ndjson 就会走错误分支
+		writeJSON(w, map[string]interface{}{"code": -1, "msg": err.Error()})
+		return
+	}
 
 	// ---------- 流式响应头 ----------
 	h := w.Header()
@@ -184,7 +190,11 @@ func handleLocalPing(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	rounds, _ := strconv.Atoi(q.Get("rounds"))
 	timeoutMs, _ := strconv.Atoi(q.Get("timeoutMs"))
-	opt := normalizeOptions(q.Get("target"), timeoutMs, rounds, 1, 1)
+	opt, err := normalizeOptions(q.Get("target"), timeoutMs, rounds, 1, 1)
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"code": -1, "msg": err.Error()})
+		return
+	}
 
 	local := measureLocal(r.Context(), opt)
 	writeJSON(w, map[string]interface{}{

@@ -31,9 +31,6 @@ import (
 // ============================================================
 
 const (
-	// defaultTargetURL 默认测速目标（空 game_code 也能返回 JSON，足够做连通性/延迟判定）
-	defaultTargetURL = "https://pay-api.ds.163.com/api/god-income/info?game_code="
-
 	// userAgent 伪装成浏览器：部分站点对 Go-http-client 直接 403
 	userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
 		"(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
@@ -610,13 +607,38 @@ func round2(f float64) float64 {
 	return float64(int64(f*100+0.5)) / 100
 }
 
-// normalizeOptions 归一化前端传来的参数，异常值一律回落到默认值。
-// 这些值会被直接用于建连和并发，不夹紧的话一次误操作就能把机器打满
-func normalizeOptions(target string, timeoutMs, rounds, concurrency, total int) testOptions {
-	if strings.TrimSpace(target) == "" {
-		target = defaultTargetURL
+// normalizeTarget 校验并规范化测速目标。
+//
+// 目标刻意**不设内置默认值**：以前写死过一个地址，很容易出现"以为在测自己的接口、
+// 其实在测别人的站"的情况——不同目标的延迟本来就没有可比性，默认值只会误导。
+// 所以必填，没填直接拒绝，让用户自己明确要测什么。
+//
+// 容错：没写协议头的自动补 https://（"example.com/api" 这种写法太常见）。
+func normalizeTarget(raw string) (string, error) {
+	target := strings.TrimSpace(raw)
+	if target == "" {
+		return "", errors.New("请先填写测速目标 URL")
 	}
-	target = strings.TrimSpace(target)
+	if !strings.Contains(target, "://") {
+		target = "https://" + target
+	}
+	u, err := url.Parse(target)
+	if err != nil || u.Host == "" {
+		return "", fmt.Errorf("测速目标不是合法地址: %s", raw)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", fmt.Errorf("测速目标只支持 http/https，收到: %s", u.Scheme)
+	}
+	return u.String(), nil
+}
+
+// normalizeOptions 归一化前端传来的参数：目标必须合法，其余异常值回落到默认值。
+// 这些值会被直接用于建连和并发，不夹紧的话一次误操作就能把机器打满
+func normalizeOptions(target string, timeoutMs, rounds, concurrency, total int) (testOptions, error) {
+	t, err := normalizeTarget(target)
+	if err != nil {
+		return testOptions{}, err
+	}
 
 	timeout := 8000
 	if timeoutMs >= 1000 && timeoutMs <= 30000 {
@@ -642,9 +664,9 @@ func normalizeOptions(target string, timeoutMs, rounds, concurrency, total int) 
 	}
 
 	return testOptions{
-		Target:      target,
+		Target:      t,
 		Timeout:     time.Duration(timeout) * time.Millisecond,
 		Rounds:      rounds,
 		Concurrency: concurrency,
-	}
+	}, nil
 }

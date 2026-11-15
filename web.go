@@ -24,12 +24,12 @@ var indexHTML string
 var bootstrapCSS []byte
 
 // renderPage 替换模板中的占位符。
-// 只有页面里真正用到的两个：版本号（角标）和默认测速目标（输入框初值）。
+// 目前只剩版本号（右上角角标）——测速目标改由用户自己填，
+// 不再从服务端预置默认值。
 // 用简单字符串替换而不是 html/template：页面里全是 JS 的花括号，
 // 套模板语法反而要到处转义，得不偿失。
 func renderPage(tmpl string) []byte {
 	html := strings.ReplaceAll(tmpl, "{{VERSION}}", Version)
-	html = strings.ReplaceAll(html, "{{TARGET}}", defaultTargetURL)
 	return []byte(html)
 }
 
