@@ -9,8 +9,12 @@ proxyip
 # Git 与 IDE
 .git/
 .gitignore
+.gitattributes
 .idea/
 .vscode/
+
+# 部署脚本（在宿主机执行，不进镜像）
+bin/
 
 # 文档（运行镜像用不到）
 README.md

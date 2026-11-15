@@ -165,6 +165,8 @@ go build -ldflags "-X main.Version=1.2.0" -o proxyIp .
 ├── web/
 │   ├── index.html          单文件页面（内联 CSS/JS，深浅主题）
 │   └── bootstrap.min.css   Bootstrap 4.6.2，本地托管
+├── bin/
+│   └── deploy.sh    服务器上执行的一键部署脚本（不进镜像）
 ├── Dockerfile
 └── go.mod
 ```
@@ -223,12 +225,63 @@ Windows 上"代理端口没开"的原文是 `proxyconnect tcp: ... connectex: ..
 
 ## Docker
 
+### 一键部署（推荐，在服务器上执行）
+
 ```bash
-docker build -t proxyping .
-docker run -d --name proxyping -p 8899:8899 -e TZ=Asia/Shanghai proxyping
+bash bin/deploy.sh
+```
+
+流程：**下载代码归档包 → 构建镜像 → 替换容器 → 健康检查**，任一步失败立刻停下并给出原因；
+新版本起不来会**自动回滚**到上一版镜像。
+
+部署机只需要 `docker` + `curl` + `tar` —— 走的是 Gitea 的
+`/archive/<分支>.tar.gz` 归档接口，**不需要装 git、也不需要仓库凭据**。
+
+所有参数都能用环境变量覆盖：
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `PORT` | `8899` | 宿主机端口；容器内始终 8899（避免两边不一致导致"容器在跑但访问不通"） |
+| `BRANCH` | `main` | 部署哪个分支 |
+| `GIT_BASE` | `http://git.danran0.cc/danran/proxyIp` | 仓库地址 |
+| `IMAGE_NAME` / `CONTAINER_NAME` | `proxyip` | 镜像名 / 容器名 |
+| `HEALTH_TIMEOUT` | `20` | 健康检查最多等几秒（机器慢就调大） |
+| `NO_CACHE` | `0` | 设为 `1` 时 `docker build --no-cache` |
+
+```bash
+PORT=9099 BRANCH=dev bash bin/deploy.sh      # 换端口 + 换分支
+NO_CACHE=1 bash bin/deploy.sh                # 改过 Dockerfile 后用
+```
+
+脚本里两个刻意的设计：
+
+- **健康检查真的发一次 `GET /version`**，而不是看容器 `Up` 就收工。
+  崩在启动阶段的容器会被 `--restart=unless-stopped` 反复拉起，`docker ps` 里一直显示
+  `Up 2 seconds`，只有拿到 HTTP 响应才算部署成功。
+- **构建前把当前 `:latest` 打成 `:previous`**，新版本健康检查失败时自动用旧镜像重建容器。
+  注意必须先 tag 再 build —— 反过来的话 `:latest` 已被新镜像覆盖，就没有"上一版"可回滚了。
+
+健康检查用的是 `curl --noproxy '*'`：服务器上常配了 `HTTP_PROXY`，代理会吃掉对
+`127.0.0.1` 的请求，导致"服务明明是好的却探测失败"。
+
+### 手动部署
+
+```bash
+docker build -t proxyip .
+docker run -d --name proxyip --restart unless-stopped \
+  -p 8899:8899 -e TZ=Asia/Shanghai proxyip
 ```
 
 镜像里显式装了 `ca-certificates`：精简镜像默认没有根证书，缺了会让所有 HTTPS 目标报 TLS 错误。
+
+### 常用运维
+
+```bash
+docker logs -f proxyip                 # 看日志
+docker restart proxyip                 # 重启
+curl -s localhost:8899/version         # 健康检查
+docker run -d --name proxyip-old -p 9099:8899 proxyip:previous   # 临时起上一版对比
+```
 
 ---
 
